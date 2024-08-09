@@ -20,7 +20,7 @@ export default function TopBar() {
           <Typography variant="h6" component="div" sx={{ flex: 1 }} to="/">
             Gentle Keys
           </Typography>
-          <Link href="https://github.com/devashish94">
+          <Link href="https://github.com/devashish94/gentle-keys">
             <IconButton>
               <GitHubIcon />
             </IconButton>

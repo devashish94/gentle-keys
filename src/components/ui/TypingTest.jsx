@@ -8,6 +8,8 @@ import {
   DialogTitle,
   Paper,
   Slide,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 
 const wordBank =
@@ -21,18 +23,22 @@ const Transition = forwardRef(function Transition(props, ref) {
 function TypingTest() {
   const inputElementRef = useRef();
   const [open, setOpen] = useState(false);
-  const [renderedWords, setRenderedWords] = useState();
+  const [wordsSource, setWordsSource] = useState(dict);
+  const [renderedWords, setRenderedWords] = useState([]);
   const [input, setInput] = useState("");
   const [letterIndex, setLetterIndex] = useState(-1);
   const [wordIndex, setWordIndex] = useState(0);
   const [result, setResult] = useState(
-    Array(dict.length).fill({ correctWord: "", userInput: "" }),
+    Array(dict.length).fill({ correctWord: "", userInput: "", time: -1 }),
   );
   const [timeTaken, setTimeTaken] = useState({ start: -1, end: -1 });
   const [wordsPerMinute, setWordsPerMinute] = useState(-1);
 
-  function generateWords(words) {
-    return words.map(function (word, wi) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
+
+  function generateWords(wordsSource, result) {
+    return wordsSource.map(function (word, wi) {
       const originalObject = result[wi];
       const correctWord = originalObject.correctWord;
       const userInputWord = originalObject.userInput;
@@ -70,30 +76,40 @@ function TypingTest() {
     });
   }
 
+  function handleClose() {
+    setOpen(() => false);
+    // resetRoundStats();
+    shuffleAndInitialize();
+    setTimeout(() => inputElementRef.current?.focus(), 250);
+  }
+
   function restartRound() {
-    resetRoundStats();
+    shuffleAndInitialize();
     inputElementRef.current?.focus();
   }
 
-  function resetRoundStats() {
+  function shuffleAndInitialize() {
+    const shuffledWords = [...wordsSource];
+    shuffleArray(shuffledWords);
+    setWordsSource(shuffledWords);
+
+    const newResult = shuffledWords.map((word) => ({
+      correctWord: word,
+      userInput: "",
+      time: -1,
+    }));
+    setResult(newResult);
+
+    setRenderedWords(generateWords(shuffledWords, newResult));
+    setInput("");
     setLetterIndex(-1);
     setWordIndex(0);
-    setInput("");
-    setResult(function (prev) {
-      const copy = prev.map((obj) => ({ ...obj }));
-      for (let i = 0; i < dict.length; ++i) {
-        copy[i].correctWord = "";
-        copy[i].userInput = "";
-      }
-      return copy;
-    });
-    setRenderedWords(generateWords(dict));
     setTimeTaken({ start: -1, end: -1 });
-    initializeResult();
+    setWordsPerMinute(-1);
   }
 
   function handleKeyDown(e) {
-    if (wordIndex >= dict.length) {
+    if (wordIndex >= wordsSource.length) {
       return;
     }
     const key = e.key;
@@ -102,6 +118,10 @@ function TypingTest() {
     }
 
     if (!/^[a-zA-Z]$/.test(key)) {
+      const allowedKeysAtRoundStart = ["Tab"];
+      if (allowedKeysAtRoundStart.includes(key)) {
+        return;
+      }
       if (input.length === 0) {
         e.preventDefault();
         return;
@@ -110,50 +130,55 @@ function TypingTest() {
     if (key === " ") {
       e.preventDefault();
       setLetterIndex(-1);
+      setResult(function (prev) {
+        const copy = prev.map((obj) => ({ ...obj }));
+        copy[wordIndex].time = performance.now() - copy[wordIndex].time;
+        return copy;
+      });
       setWordIndex((prev) => prev + 1);
       setInput("");
     }
     if (timeTaken.start === -1) {
-      setTimeTaken((prev) => ({ start: Date.now(), end: prev.end }));
+      setTimeTaken((prev) => ({ start: performance.now(), end: prev.end }));
     }
   }
 
   function handleInputChange(e) {
-    if (wordIndex >= dict.length) {
+    if (wordIndex >= wordsSource.length) {
       return;
     }
     const userInput = e.target.value;
     setInput(userInput);
     setLetterIndex(userInput.length - 1);
     setResult(function (prev) {
-      const copy = [...prev];
-      copy[wordIndex].userInput = userInput;
-      return copy;
-    });
-  }
-
-  function handleClose() {
-    restartRound();
-    setOpen(false);
-  }
-
-  function initializeResult() {
-    setResult(function (prev) {
       const copy = prev.map((obj) => ({ ...obj }));
-      for (let i = 0; i < dict.length; ++i) {
-        copy[i].correctWord = dict[i];
+      copy[wordIndex].userInput = userInput;
+      if (letterIndex === -1 && copy[wordIndex].time === -1) {
+        copy[wordIndex].time = performance.now();
       }
       return copy;
     });
   }
 
+  function shuffleArray(array) {
+    let m = array.length;
+    while (m) {
+      const i = Math.floor(Math.random() * m--);
+      const t = array[m];
+      array[m] = array[i];
+      array[i] = t;
+    }
+    return array;
+  }
+
   useEffect(() => {
-    initializeResult();
+    shuffleAndInitialize();
     inputElementRef.current?.focus();
   }, []);
 
   useEffect(() => {
-    setRenderedWords(generateWords(dict));
+    // console.log(result[0])
+    setRenderedWords(generateWords(wordsSource, result));
   }, [result]);
 
   function calculateTimeInSeconds() {
@@ -165,14 +190,14 @@ function TypingTest() {
   }
 
   // Following the MonkeyType formula from their info page + count spaces too (from ChatGPT)
-  function calculateWordsPerMinute(time) {
+  function calculateWordsPerMinute(time, result) {
     let totalLettersInCorrectWords = 0;
-    for (let i = 0; i < dict.length; ++i) {
+    for (let i = 0; i < wordsSource.length; ++i) {
       const userInputWord = result[i].userInput;
-      const correctWord = dict[i];
+      const correctWord = wordsSource[i];
       if (userInputWord === correctWord) {
         totalLettersInCorrectWords += correctWord.length;
-        if (i < dict.length - 1) {
+        if (i < wordsSource.length - 1) {
           totalLettersInCorrectWords += 1; // count a space after each word
         }
       }
@@ -181,20 +206,27 @@ function TypingTest() {
   }
 
   useEffect(() => {
-    if (wordIndex >= dict.length) {
+    if (wordIndex >= wordsSource.length) {
       if (timeTaken.end === -1) {
-        setTimeTaken((prev) => ({ start: prev.start, end: Date.now() }));
+        setTimeTaken((prev) => ({ start: prev.start, end: performance.now() }));
       }
       const timeInSeconds = calculateTimeInSeconds();
       if (!timeInSeconds) {
         return;
       }
-      const wpm = calculateWordsPerMinute(timeInSeconds);
-      console.log(wpm, timeInSeconds);
+      const wpm = calculateWordsPerMinute(timeInSeconds, result);
+      console.log(
+        "WPM:",
+        wpm.toFixed(3),
+        "Time Taken:",
+        timeInSeconds.toFixed(3),
+        "sec",
+      );
       setWordsPerMinute(wpm.toFixed(2));
+      inputElementRef.current?.blur();
       setOpen(true);
     }
-    setRenderedWords(generateWords(dict));
+    setRenderedWords(generateWords(wordsSource, result));
   }, [wordIndex, letterIndex, timeTaken.end]);
 
   return (
@@ -233,6 +265,7 @@ function TypingTest() {
       <Dialog
         open={open}
         TransitionComponent={Transition}
+        fullScreen={fullScreen}
         keepMounted
         aria-describedby="alert-dialog-slide-description"
       >
