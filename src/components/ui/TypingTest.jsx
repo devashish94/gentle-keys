@@ -20,10 +20,11 @@ const Transition = forwardRef(function Transition(props, ref) {
   return <Slide direction="up" ref={ref} {...props} />;
 });
 
+const MAX_INCORRECT_LETTERS_SHOWN = 7;
+
 function TypingTest() {
   const inputElementRef = useRef();
   const [open, setOpen] = useState(false);
-  const [wordsSource, setWordsSource] = useState(dict);
   const [renderedWords, setRenderedWords] = useState([]);
   const [input, setInput] = useState("");
   const [letterIndex, setLetterIndex] = useState(-1);
@@ -37,12 +38,10 @@ function TypingTest() {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
 
-  function generateWords(wordsSource, result) {
-    return wordsSource.map(function (word, wi) {
-      const originalObject = result[wi];
-      const correctWord = originalObject.correctWord;
-      const userInputWord = originalObject.userInput;
-
+  function generateWords(result) {
+    return result.map(function (resultItem, wi) {
+      const correctWord = resultItem.correctWord;
+      const userInputWord = resultItem.userInput;
       const wordIndexLessThanCurrentWordIndex = wi < wordIndex;
       const isCorrectWord = correctWord === userInputWord;
       const isCurrentWord = wi === wordIndex;
@@ -50,11 +49,18 @@ function TypingTest() {
 
       return (
         <div key={wi} className={`${className} rounded-md px-1`}>
-          {Array.from(word).map(function (letter, li) {
+          {Array.from(
+            userInputWord.length < correctWord.length
+              ? correctWord
+              : userInputWord,
+          ).map(function (ambiguousLetter, li) {
             const correctLetter = correctWord[li];
             const userInputLetter = userInputWord[li];
             const isCorrectLetter = correctLetter === userInputLetter;
             const isLetterAttempted = userInputLetter !== undefined || null;
+            const displayLetter =
+              li < correctWord.length ? correctWord[li] : userInputWord[li];
+
             const letterColor = wordIndexLessThanCurrentWordIndex
               ? isCorrectLetter
                 ? "text-green-400"
@@ -67,7 +73,7 @@ function TypingTest() {
 
             return (
               <span key={li} className={letterColor}>
-                {letter === " " ? "\u00A0" : letter}
+                {displayLetter === " " ? "\u00A0" : displayLetter}
               </span>
             );
           })}
@@ -78,7 +84,6 @@ function TypingTest() {
 
   function handleClose() {
     setOpen(() => false);
-    // resetRoundStats();
     shuffleAndInitialize();
     setTimeout(() => inputElementRef.current?.focus(), 250);
   }
@@ -89,18 +94,17 @@ function TypingTest() {
   }
 
   function shuffleAndInitialize() {
-    const shuffledWords = [...wordsSource];
+    const shuffledWords = [...dict];
     shuffleArray(shuffledWords);
-    setWordsSource(shuffledWords);
 
     const newResult = shuffledWords.map((word) => ({
       correctWord: word,
       userInput: "",
       time: -1,
     }));
-    setResult(newResult);
 
-    setRenderedWords(generateWords(shuffledWords, newResult));
+    setResult(newResult);
+    setRenderedWords(generateWords(newResult));
     setInput("");
     setLetterIndex(-1);
     setWordIndex(0);
@@ -109,7 +113,7 @@ function TypingTest() {
   }
 
   function handleKeyDown(e) {
-    if (wordIndex >= wordsSource.length) {
+    if (wordIndex >= result.length) {
       return;
     }
     const key = e.key;
@@ -144,10 +148,16 @@ function TypingTest() {
   }
 
   function handleInputChange(e) {
-    if (wordIndex >= wordsSource.length) {
+    if (wordIndex >= result.length) {
       return;
     }
     const userInput = e.target.value;
+    if (
+      userInput.length >
+      result[wordIndex].correctWord.length + MAX_INCORRECT_LETTERS_SHOWN
+    ) {
+      return;
+    }
     setInput(userInput);
     setLetterIndex(userInput.length - 1);
     setResult(function (prev) {
@@ -177,8 +187,7 @@ function TypingTest() {
   }, []);
 
   useEffect(() => {
-    // console.log(result[0])
-    setRenderedWords(generateWords(wordsSource, result));
+    setRenderedWords(generateWords(result));
   }, [result]);
 
   function calculateTimeInSeconds() {
@@ -192,12 +201,12 @@ function TypingTest() {
   // Following the MonkeyType formula from their info page + count spaces too (from ChatGPT)
   function calculateWordsPerMinute(time, result) {
     let totalLettersInCorrectWords = 0;
-    for (let i = 0; i < wordsSource.length; ++i) {
+    for (let i = 0; i < result.length; ++i) {
       const userInputWord = result[i].userInput;
-      const correctWord = wordsSource[i];
+      const correctWord = result[i].correctWord;
       if (userInputWord === correctWord) {
         totalLettersInCorrectWords += correctWord.length;
-        if (i < wordsSource.length - 1) {
+        if (i < result.length - 1) {
           totalLettersInCorrectWords += 1; // count a space after each word
         }
       }
@@ -206,7 +215,7 @@ function TypingTest() {
   }
 
   useEffect(() => {
-    if (wordIndex >= wordsSource.length) {
+    if (wordIndex >= result.length) {
       if (timeTaken.end === -1) {
         setTimeTaken((prev) => ({ start: prev.start, end: performance.now() }));
       }
@@ -226,7 +235,7 @@ function TypingTest() {
       inputElementRef.current?.blur();
       setOpen(true);
     }
-    setRenderedWords(generateWords(wordsSource, result));
+    setRenderedWords(generateWords(result));
   }, [wordIndex, letterIndex, timeTaken.end]);
 
   return (
